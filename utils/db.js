@@ -24,6 +24,7 @@ const closeDatabaseConnection = async () => {
   if (client) {
     await client.close();
     console.log('MongoDB connection closed');
+    console.log('MongoDB connection closed');
   }
 };
 
