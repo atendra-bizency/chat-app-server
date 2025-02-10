@@ -11,6 +11,8 @@ const { ObjectId } = require('mongodb');  // Ensure ObjectId is imported
 const multer = require('multer');
 const upload = multer(); // Initialize multer middleware
 const fs = require('fs');
+const bcrypt = require('bcrypt');
+
 
 // Express
 var app = express();
@@ -47,17 +49,17 @@ const Message = require('./models/messagesSchema');
 const Conversation = require('./models/convercationSchema');
 
 
-app.post('/api/login', async(req, res) => {
+/*app.post('/api/login', async(req, res) => {
   const { fullName, password } = req.body;
 
-  console.log(req.body);
+  //console.log(req.body);
 
   const db = await connectToDatabase(); // Reuse connection
 
   const collection = db.collection('users');
   
   const user = await collection.findOne({ fullName, password });;
-  console.log(user);
+ //console.log(user);
   
 
   if (user) {
@@ -65,7 +67,95 @@ app.post('/api/login', async(req, res) => {
   } else {
     res.json({ success: false, message: 'Invalid username or password' });
   }
+}); */
+
+app.post('/api/login', async (req, res) => {
+  const { username, password } = req.body;
+  //console.log(req.body);
+  
+
+  const db = await connectToDatabase();
+  const collection = db.collection('users');
+
+  const user = await collection.findOne({ username });
+  //console.log(user);
+  
+
+  if (user && await bcrypt.compare(password, user.password)) {
+    // Passwords match, login successful
+    res.json({ success: true, user });
+  } else {
+    // Invalid username or password
+    res.json({ success: false, message: 'Invalid username or password' });
+  }
 });
+
+
+
+app.post('/api/register', async (req, res) => {
+  try {
+    // Destructure the fields from the request body
+    const { username, full_name, email, password, phone, address, country, img, status } = req.body;
+
+    // Check if all required fields are provided
+    if (!username || !full_name || !email || !password || !phone || !address || !country) {
+      return res.status(400).json({ success: false, message: 'All fields are required' });
+    }
+
+  // Check if the email format is valid (simple check, you can improve this)
+  const emailRegex = /^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zAZ0-9.-]+$/;
+  if (!emailRegex.test(email)) {
+    return res.status(400).json({ success: false, message: 'Invalid email format' });
+  }
+
+    // Connect to the database
+    const db = await connectToDatabase();
+    const collection = db.collection('users');
+
+    // Check if the username or email already exists in the database
+    const existingUser = await collection.findOne({ $or: [{ username }, { email }] });
+
+    if (existingUser) {
+      return res.status(409).json({ success: false, message: 'Username or Email already exists' });
+    }
+
+    // Hash the password before saving it to the database
+    const saltRounds = 10; // This defines the complexity of the hash
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+    // Set status to 1 by default if not provided
+    const userStatus = status || 1;
+
+    // Create a new user document
+    const newUser = {
+      username,
+      full_name,
+      email,
+      password: hashedPassword, // Save the hashed password
+      phone,
+      address,
+      country,
+      img,
+      status: userStatus, // Use default status if not provided
+    };
+
+    // Insert the new user into the database
+    const result = await collection.insertOne(newUser);
+
+     // Add logging to debug the result of insertOne
+     console.log('Insert Result:', result);
+
+    if (result.insertedId === 1) {
+      res.status(201).json({ success: true, message: 'User registered successfully' });
+    } else {
+      throw new Error('User registration failed');
+    }
+  } catch (error) {
+    console.error('Error during registration:', error);
+    res.status(500).json({ success: false, message: 'Server error, please try again later' });
+  }
+});
+
 
 // Define the route for uploading profile images
 app.post('/api/uploadProfileImage', (req, res) => {
@@ -408,7 +498,7 @@ app.post('/api/conversation', async (req, res) => {
       participants: { $all: [senderId, receiverId] } // Ensures both users are in the conversation
     }).toArray();
 
-    console.log('conversations=>>>>',conversations);
+    //console.log('conversations=>>>>',conversations);
     
 
     // If no conversations are found, send an appropriate message
@@ -420,13 +510,13 @@ app.post('/api/conversation', async (req, res) => {
     const conversationsWithDetails = await Promise.all(conversations.map(async (conversation) => {
       const participants = conversation.participants.filter(participant => participant !== senderId );
 
-      console.log('conversation', conversation.conversation_id);
+      //console.log('conversation', conversation.conversation_id);
       
 
       // Fetch messages for the given conversation
       const messages = await db.collection('messages').find({ conversation_id: parseInt(conversation.conversation_id) }).toArray();
 
-      console.log('messages====>',messages);
+      //console.log('messages====>',messages);
       
 
       // Fetch user details for each participant

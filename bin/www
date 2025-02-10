@@ -35,7 +35,9 @@ const io = SocketIO(server, {
   cors: {
    
     origin: (origin, callback) => {
-      if (origin === 'https://localhost/bizencyProject/public/mis' || origin === 'https://localhost:3000') {
+      if (origin === 'https://localhost/bizencyProject/public/mis' || origin === 'https://localhost:3000' 
+        || origin === 'https://192.168.1.9:3000' 
+      ) {
         callback(null, true); // Allow the request from both origins
       } else {
         callback(new Error('Not allowed by CORS')); // Reject the request from other origins
