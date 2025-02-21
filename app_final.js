@@ -47,8 +47,6 @@ const messages = require('./models/messagesSchema');
 const { connectToDatabase, closeDatabaseConnection } = require('./utils/db'); // Import the utility module
 const Message = require('./models/messagesSchema');
 const Conversation = require('./models/convercationSchema');
-const jwt = require('jsonwebtoken');
-
 
 
 /*app.post('/api/login', async(req, res) => {
@@ -72,63 +70,23 @@ const jwt = require('jsonwebtoken');
 }); */
 
 app.post('/api/login', async (req, res) => {
-  const { username, password, role } = req.body;
+  const { username, password } = req.body;
+  //console.log(req.body);
+  
 
+  const db = await connectToDatabase();
+  const collection = db.collection('users');
 
-  if (!username || !role) {
-    return res.status(400).json({ success: false, message: 'Username and role are required' });
-  }
+  const user = await collection.findOne({ username });
+  //console.log(user);
+  
 
-  try {
-    const { db } = await connectToDatabase();
-    const collection = db.collection('users');
-
-    // Check if user exists
-    let user = await collection.findOne({ username, role });
-
-    if (user) {
-      // User exists, verify password for agents
-      if (role === 'agent') {
-        if (!password) {
-          return res.status(400).json({ success: false, message: 'Password is required for agents' });
-        }
-
-        const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) {
-          return res.status(401).json({ success: false, message: 'Invalid password' });
-        }
-      }
-    } else {
-      // User does not exist, create new user
-      const newUser = {
-        //_id: uuidv4(), // Generate a unique ID
-        username,
-        role,
-      };
-
-      // Hash password only for agents
-      if (role === 'agent') {
-        if (!password) {
-          return res.status(400).json({ success: false, message: 'Password is required for agents' });
-        }
-        newUser.password = await bcrypt.hash(password, 10);
-      }
-
-      // Insert new user into database
-      await collection.insertOne(newUser);
-      user = newUser;
-    }
-
-    // Generate JWT token
-    const token = jwt.sign({ userId: user._id, role: user.role }, 'your_secret_key', { expiresIn: '7d' });
-
-
-
-    res.json({ success: true, message: 'Login successful', user, token });
-
-  } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({ success: false, message: 'Internal server error' });
+  if (user && await bcrypt.compare(password, user.password)) {
+    // Passwords match, login successful
+    res.json({ success: true, user });
+  } else {
+    // Invalid username or password
+    res.json({ success: false, message: 'Invalid username or password' });
   }
 });
 
@@ -144,11 +102,11 @@ app.post('/api/register', async (req, res) => {
       return res.status(400).json({ success: false, message: 'All fields are required' });
     }
 
-    // Check if the email format is valid (simple check, you can improve this)
-    const emailRegex = /^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zAZ0-9.-]+$/;
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({ success: false, message: 'Invalid email format' });
-    }
+  // Check if the email format is valid (simple check, you can improve this)
+  const emailRegex = /^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zAZ0-9.-]+$/;
+  if (!emailRegex.test(email)) {
+    return res.status(400).json({ success: false, message: 'Invalid email format' });
+  }
 
     // Connect to the database
     const db = await connectToDatabase();
@@ -184,8 +142,8 @@ app.post('/api/register', async (req, res) => {
     // Insert the new user into the database
     const result = await collection.insertOne(newUser);
 
-    // Add logging to debug the result of insertOne
-    console.log('Insert Result:', result);
+     // Add logging to debug the result of insertOne
+     console.log('Insert Result:', result);
 
     if (result.insertedId === 1) {
       res.status(201).json({ success: true, message: 'User registered successfully' });
@@ -441,7 +399,7 @@ app.post('/api/sendMessage', async (req, res) => {
 
 */
 
-/* after 2nd 
+
 app.post('/api/sendMessage', async (req, res) => {
   try {
     const db = await connectToDatabase();
@@ -542,233 +500,16 @@ app.post('/api/sendMessage', async (req, res) => {
   } finally {
     await closeDatabaseConnection();
   }
-}); */
-
-
-app.post('/api/sendMessage', async (req, res) => {
-  const { client, db } = await connectToDatabase();
-  const session = client.startSession(); // Start session from client
-  let newMessage; // Declare it here to use later in socket logic
-
-  try {
-    const { senderId, chat, role, conversationId } = req.body;
-    const currentTime = new Date();
-
-    if (!senderId || !chat || !role) {
-      return res.status(400).json({ error: 'Sender, message, and role are required' });
-    }
-
-    console.log(`🔍 Processing message from sender: ${senderId} | Role: ${role}`);
-
-    let conversation;
-    let agent;
-    let team;
-    let agentId; // Store agentId separately for consistency
-
-    // Start Transaction
-    await session.withTransaction(async () => {
-      // 1️⃣ **Check for an existing open conversation**
-      /* conversation = await db.collection('conversations').findOne({
-         customerId: new ObjectId(senderId),
-         status: 'open'
-       }); */
-      conversation = await db.collection('conversations').findOne({
-        conversation_id: conversationId,
-        //status: 'open'
-      });
-
-      if (!conversation) {
-        console.log('📌 No active conversation. Assigning a team and agent.');
-
-        // 2️⃣ **Find a suitable team**
-        team = await db.collection('teams').findOne({});
-        if (!team) throw new Error('No available teams to assign.');
-
-        console.log(`✅ Assigned Team: ${team.teamId}`);
-
-        // 3️⃣ **Find an available agent in that team**
-        agent = await db.collection('agents').findOneAndUpdate(
-          { team: team.teamId, isAvailable: true },
-          { $set: { isAvailable: false } },
-          { returnOriginal: false, session }
-        );
-
-        if (!agent.value) throw new Error('No available agents at this time.');
-
-        //agentId = agent.value._id; // Normalize agent ID
-        agentId = agent.value.userId; // Normalize agent ID
-        agent = await db.collection('agents').findOne({ userId: agentId });
-
-        console.log(`✅ Assigned Agent: ${agentId}`);
-
-        // 4️⃣ **Create a new conversation**
-        const lastConv = await db.collection('conversations').findOne({}, { sort: { conversation_id: -1 } });
-
-        conversation = {
-          conversation_id: (lastConv?.conversation_id || 0) + 1,
-          customerId: new ObjectId(senderId),
-          agentId: new ObjectId(agentId),
-          team: team.teamId,
-          created_at: currentTime,
-          status: 'open',
-          messages: []
-        };
-
-        await db.collection('conversations').insertOne(conversation, { session });
-
-        console.log(`📌 New conversation started: ${conversation.conversation_id}`);
-      } else {
-        console.log(`📌 Existing conversation found: ${conversation.conversation_id}`);
-        console.log(`📌 Existing conversation found: ${conversation.agentId}`);
-        team = conversation.team;
-        agent = await db.collection('agents').findOne({ userId: new ObjectId(conversation.agentId) });
-        agentId = agent?.userId; // Normalize agent ID
-
-        console.log(`📌 Assigned existing agent: ${agentId}`);
-      }
-
-      // 5️⃣ **Create and store the message**
-      const lastMessage = await db.collection('messages').findOne({}, { sort: { message_id: -1 } });
-
-      newMessage = {
-        message_id: (lastMessage?.message_id || 0) + 1,
-        conversation_id: conversation.conversation_id,
-        senderId: new ObjectId(senderId),
-        receiver: new ObjectId(agentId), // Ensure receiver is correctly assigned
-        team,
-        chat,
-        timestamp: currentTime,
-        status: 'unread'
-      };
-
-      console.log('📌 New Message:', newMessage);
-
-      await db.collection('messages').insertOne(newMessage, { session });
-
-      // 6️⃣ **Update conversation with the latest message**
-      await db.collection('conversations').updateOne(
-        { conversation_id: conversation.conversation_id },
-        {
-          $push: { messages: newMessage },
-          $set: { last_activity: currentTime }
-        },
-        { session }
-      );
-
-      console.log(`📌 Message stored: ${newMessage.message_id}`);
-    });
-
-    console.log(`✅ Message successfully processed for sender: ${senderId}`);
-
-    res.status(201).json({
-      success: true,
-      message: 'Message sent to support',
-      assignedAgent: agentId,
-      assignedAgentDetails: agent,
-      conversationId: conversation.conversation_id,
-      chat: newMessage
-    });
-
-  } catch (error) {
-    console.error('❌ Error in message routing:', error);
-    res.status(500).json({
-      error: 'Failed to send message',
-      details: error.message
-    });
-
-  } finally {
-    await session.endSession(); // End the transaction session
-    await closeDatabaseConnection();
-  }
 });
-
-
-
-
-app.post('/api/sendAgentMessage', async (req, res) => {
-  try {
-    const { db } = await connectToDatabase();
-    const { senderId, conversationId, chat, role } = req.body;
-
-    console.log(req.body, 'req.body');
-
-    const currentTime = new Date();
-
-    if (!senderId || !conversationId || !chat) {
-      return res.status(400).json({ error: 'Agent ID, conversation ID, and message are required' });
-    }
-
-    // 1. Find the existing conversation
-    const conversation = await db.collection('conversations').findOne({
-      conversation_id: parseInt(conversationId, 10),
-      //status: 'open'
-    });
-
-    if (!conversation) {
-      return res.status(404).json({ error: 'No active conversation found' });
-    }
-
-    // 2. Get the customer ID from the conversation
-    const customerId = conversation.customerId;
-
-    // 3. Create the new agent message
-    const lastMessage = await db.collection('messages').findOne({}, { sort: { message_id: -1 } });
-
-    const newMessage = {
-      message_id: (lastMessage?.message_id || 0) + 1,
-      conversation_id: JSON.parse(conversationId),
-      senderId: new ObjectId(senderId),
-      receiverId: new ObjectId(customerId),
-      team: conversation.team,
-      chat,
-      timestamp: currentTime,
-      status: 'unread'
-    };
-
-    // 4. Store the message in the database
-    await db.collection('messages').insertOne(newMessage);
-
-    // 5. Update the conversation with the latest message
-    await db.collection('conversations').updateOne(
-      { conversation_id: parseInt(conversationId, 10), },
-      {
-        $push: { messages: newMessage },
-        $set: { last_activity: currentTime }
-      }
-    );
-    res.status(201).json({
-      success: true,
-      message: 'Message sent to customer',
-      chat: newMessage,
-      conversation, 
-      assignedAgentDetails: await db.collection('users').findOne({ _id: new ObjectId(customerId) })
-    });
-
-  } catch (error) {
-    console.error('Error sending agent message:', error);
-    res.status(500).json({ error: 'Failed to send message', details: error.message });
-  } finally {
-    await closeDatabaseConnection();
-  }
-});
-
-
-
-// Helper function to get socketId by userId
-const getSocketIdByUserId = (userId) => {
-  return userSocketMap.get(userId);
-};
-
 
 
 
 const Agent = require('./models/Agents'); // Import the Agent model
-const User = require('./sockets/User');
 
 // Create Agent API
 app.post('/api/agents', async (req, res) => {
   try {
-
+    
     const db = await connectToDatabase();
     const { userId, fullName, team, isAvailable, currentChatId, lastActivity } = req.body;
 
@@ -864,9 +605,9 @@ app.post('/api/teams/create', async (req, res) => {
 
     if (!team) {
       // Create a new team
-      const newTeam = {
-        name,
-        agents: agentIds
+      const newTeam = { 
+        name, 
+        agents: agentIds 
       };
       const result = await db.collection('teams').insertOne(newTeam);
       team = { _id: result.insertedId, ...newTeam }; // Update team reference
@@ -904,45 +645,28 @@ app.post('/api/teams/create', async (req, res) => {
 // Get messages for a specific conversation
 app.get('/api/getMessage/:conversationId', async (req, res) => {
   const { conversationId } = req.params;
+  //console.log(conversationId,'===>conversationId');
 
-  console.log(conversationId);
-  
   if (!conversationId) return res.status(200).json([]);
-  const { db } = await connectToDatabase();
-
   try {
-    // Find the conversation to get the agentId
-    const conversation = await db.collection('conversations').findOne(
-      { conversation_id: parseInt(conversationId) }
-    );
+    // Reuse the existing database connection
+    const db = await connectToDatabase();
 
-    if (!conversation) {
-      return res.status(404).json({ message: 'Conversation not found.' });
+    // Fetch messages for the given conversation_id
+    const messages = await db.collection('messages').find({ conversation_id: parseInt(conversationId) }).toArray(); // Convert conversationId to integer if needed
+
+    
+    if (messages.length === 0) {
+      return res.status(404).json({ message: 'No messages found for this conversation.' });
     }
-
-    // Extract agentId from the conversation
-    const { agentId } = conversation;
-
-    // Update conversation status to "closed"
-    await db.collection('conversations').updateOne(
-      { conversation_id: parseInt(conversationId) }, // Find by conversation_id
-      { $set: { status: 'closed' } } // Update status to closed
-    );
-
-  
-    await db.collection('agents').updateOne(
-      { userId: new ObjectId(agentId) }, // Find by conversation_id
-      { $set: { isAvailable: 'true' } } // Update status to closed
-    );
 
     // Close the database connection (if not using persistent connection)
     await closeDatabaseConnection();
 
     // Return the messages for the conversation
     res.status(200).json({
-      message: 'Messages retrieved successfully, conversation closed.',
-      agentId,
-      customerId: conversation.customerId,
+      message: 'Messages retrieved successfully',
+      data: messages,
     });
 
   } catch (error) {
@@ -955,242 +679,12 @@ app.get('/api/getMessage/:conversationId', async (req, res) => {
 
 
 // Get conversations for a specific user
-// Get conversation by customerId
-app.get('/api/conversation/:role/:userId', async (req, res) => {
-  try {
-    const { userId, role } = req.params;
-    const { db } = await connectToDatabase();
-
-    //console.log(role, '===>role');
-    // console.log(userId, '===>userId');
-
-    if (!ObjectId.isValid(userId)) {
-      return res.status(400).json({ success: false, message: 'Invalid customer ID' });
-    }
-    const conversations = await db.collection('conversations').find({
-      $or: [
-        { customerId: new ObjectId(userId) },
-        { agentId: new ObjectId(userId) }
-      ]
-    }).toArray();
-
-
-
-    if (!conversations || conversations.length === 0) {
-      return res.status(404).json({ success: false, message: 'No conversations found for this customer' });
-    }
-
-    let conversationsWithDetails
-    if (role === 'customer') {
-
-
-      // Map through each conversation to fetch agent and team details (if applicable)
-      conversationsWithDetails = await Promise.all(
-        conversations.map(async (conversation) => {
-          // Initialize agentDetails and teamDetails as null
-          let agentDetails = null;
-          let teamDetails = null;
-
-          //console.log(conversation, '===>conversations from inside');
-
-          //console.log(conversation.agentId, '===>conversation.agentId');
-
-
-          // Fetch agent details if an agent is assigned
-          if (conversation.agentId) {
-            agentDetails = await db.collection('agents').findOne({ userId: new ObjectId(conversation.agentId) });
-
-            if (agentDetails) {
-              agentDetails = await db.collection('users').findOne({ _id: new ObjectId(conversation.agentId) });
-            }
-
-          }
-
-          // Fetch team details if a team is assigned (and is a string or valid ID)
-          if (conversation.team && typeof conversation.team === 'string') {
-            teamDetails = await db.collection('teams').findOne({ teamId: conversation.team });
-          }
-
-          // Return the conversation with its respective agent and team details
-          return {
-            ...conversation,
-            agentDetails,
-            teamDetails,
-          };
-        })
-      );
-    } else {
-      conversationsWithDetails = await Promise.all(
-        conversations.map(async (conversation) => {
-          // Initialize agentDetails and teamDetails as null
-          let agentDetails = null;
-          let teamDetails = null;
-
-          // Fetch agent details if an agent is assigned
-          if (conversation.customerId) {
-            agentDetails = await db.collection('users').findOne({ _id: conversation.customerId });
-          }
-
-          // Fetch team details if a team is assigned (and is a string or valid ID)
-          if (conversation.team && typeof conversation.team === 'string') {
-            teamDetails = await db.collection('teams').findOne({ teamId: conversation.team });
-          }
-
-          // Return the conversation with its respective agent and team details
-          return {
-            ...conversation,
-            agentDetails,
-            teamDetails,
-          };
-        })
-      );
-
-    }
-
-    // Validate userId format
-
-
-    //console.log(conversations, '===>conversations');
-
-    // If no conversations are found, return an appropriate response
-
-
-    // Send the response with all the conversations and their associated details
-    res.status(200).json({
-      success: true,
-      message: 'Conversations retrieved successfully',
-      data: conversationsWithDetails,
-    });
-
-  } catch (error) {
-    console.error('Error fetching conversation:', error);
-    res.status(500).json({ success: false, message: 'Internal Server Error' });
-  }
-});
-
-
-app.post('/api/conversation/:userId', async (req, res) => {
-  try {
-    const { userId, } = req.params;
-    const { db } = await connectToDatabase();
-
-    //console.log(role, '===>role');
-    // console.log(userId, '===>userId');
-
-    if (!ObjectId.isValid(userId)) {
-      return res.status(400).json({ success: false, message: 'Invalid customer ID' });
-    }
-    const conversations = await db.collection('conversations').find({
-      $or: [
-        { customerId: new ObjectId(userId) },
-        { agentId: new ObjectId(userId) }
-      ]
-    }).toArray();
-
-
-
-    if (!conversations || conversations.length === 0) {
-      return res.status(404).json({ success: false, message: 'No conversations found for this customer' });
-    }
-
-    let conversationsWithDetails
-    if (role === 'customer') {
-
-
-      // Map through each conversation to fetch agent and team details (if applicable)
-      conversationsWithDetails = await Promise.all(
-        conversations.map(async (conversation) => {
-          // Initialize agentDetails and teamDetails as null
-          let agentDetails = null;
-          let teamDetails = null;
-
-          //console.log(conversation, '===>conversations from inside');
-
-          //console.log(conversation.agentId, '===>conversation.agentId');
-
-
-          // Fetch agent details if an agent is assigned
-          if (conversation.agentId) {
-            agentDetails = await db.collection('agents').findOne({ userId: new ObjectId(conversation.agentId) });
-
-            if (agentDetails) {
-              agentDetails = await db.collection('users').findOne({ _id: new ObjectId(conversation.agentId) });
-            }
-
-          }
-
-          // Fetch team details if a team is assigned (and is a string or valid ID)
-          if (conversation.team && typeof conversation.team === 'string') {
-            teamDetails = await db.collection('teams').findOne({ teamId: conversation.team });
-          }
-
-          // Return the conversation with its respective agent and team details
-          return {
-            ...conversation,
-            agentDetails,
-            teamDetails,
-          };
-        })
-      );
-    } else {
-      conversationsWithDetails = await Promise.all(
-        conversations.map(async (conversation) => {
-          // Initialize agentDetails and teamDetails as null
-          let agentDetails = null;
-          let teamDetails = null;
-
-          // Fetch agent details if an agent is assigned
-          if (conversation.customerId) {
-            agentDetails = await db.collection('users').findOne({ _id: conversation.customerId });
-          }
-
-          // Fetch team details if a team is assigned (and is a string or valid ID)
-          if (conversation.team && typeof conversation.team === 'string') {
-            teamDetails = await db.collection('teams').findOne({ teamId: conversation.team });
-          }
-
-          // Return the conversation with its respective agent and team details
-          return {
-            ...conversation,
-            agentDetails,
-            teamDetails,
-          };
-        })
-      );
-
-    }
-
-    // Validate userId format
-
-
-    //console.log(conversations, '===>conversations');
-
-    // If no conversations are found, return an appropriate response
-
-
-    // Send the response with all the conversations and their associated details
-    res.status(200).json({
-      success: true,
-      message: 'Conversations retrieved successfully',
-      data: conversationsWithDetails,
-    });
-
-  } catch (error) {
-    console.error('Error fetching conversation:', error);
-    res.status(500).json({ success: false, message: 'Internal Server Error' });
-  }
-});
-
-
-/*
 app.get('/api/conversation/:userId', async (req, res) => {
   const { userId } = req.params;
-  console.log(userId,'===>userId');
-  
 
   try {
     // Reuse the existing database connection
-    const {db} = await connectToDatabase();
+    const db = await connectToDatabase();
 
     // Find conversations where the user is a participant
     const conversations = await db.collection('conversations').find({
@@ -1238,50 +732,41 @@ app.get('/api/conversation/:userId', async (req, res) => {
     console.error('Error fetching conversations:', error);
     res.status(500).send('Internal Server Error');
   }
-}); */
+});
 
 // Get conversations for a specific user
 app.post('/api/conversation', async (req, res) => {
-  const { customerId, agentId } = req.body; // Receive both sender and receiver from request body
-
-
-  console.log( customerId);
-  
+  const { senderId, receiverId } = req.body; // Receive both sender and receiver from request body
 
   try {
     // Reuse the existing database connection
-    const{ db} = await connectToDatabase();
+    const db = await connectToDatabase();
 
     // Find conversations where both sender and receiver are participants
     const conversations = await db.collection('conversations').find({
-      $and: [
-        { customerId: new ObjectId(customerId) }, // Match customerId
-        { agentId: new ObjectId(agentId) } // Match agentId
-      ]
+      participants: { $all: [senderId, receiverId] } // Ensures both users are in the conversation
     }).toArray();
 
     //console.log('conversations=>>>>',conversations);
-
+    
 
     // If no conversations are found, send an appropriate message
     if (conversations.length === 0) {
       return res.status(200).json({ message: false });
     }
 
-    /*
-
     // Add user details and messages to each conversation
     const conversationsWithDetails = await Promise.all(conversations.map(async (conversation) => {
-      const participants = conversation.participants.filter(participant => participant !== senderId);
+      const participants = conversation.participants.filter(participant => participant !== senderId );
 
       //console.log('conversation', conversation.conversation_id);
-
+      
 
       // Fetch messages for the given conversation
       const messages = await db.collection('messages').find({ conversation_id: parseInt(conversation.conversation_id) }).toArray();
 
       //console.log('messages====>',messages);
-
+      
 
       // Fetch user details for each participant
       const participantsWithDetails = await Promise.all(participants.map(async (participantId) => {
@@ -1289,7 +774,7 @@ app.post('/api/conversation', async (req, res) => {
       }));
 
       return { ...conversation, participantsWithDetails, messages };
-    })); */
+    }));
 
     // Close the database connection (if not using persistent connection)
     await closeDatabaseConnection();
@@ -1297,7 +782,7 @@ app.post('/api/conversation', async (req, res) => {
     // Return the list of conversations
     res.status(200).json({
       message: true,
-      data: conversations,
+      data: conversationsWithDetails,
     });
   } catch (error) {
     console.error('Error fetching conversations:', error);

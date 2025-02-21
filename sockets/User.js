@@ -1,10 +1,12 @@
+const { ObjectId } = require('mongodb'); // If you're using the native MongoDB driver
+
 class User {
   constructor(id, login) {
     this.id = id;
     this.isLogin = login;
     this.fullname = '';
-
   }
+
   static getOnlineUser() {
     let onlineUser = [];
 
@@ -16,8 +18,41 @@ class User {
 
     return onlineUser;
   }
-};
 
+  static getSocketIdByUserId(userId) {
+    // Default socketId to undefined if no match is found
+    let socketId = undefined;
+
+
+
+    console.log(this.users, 'from getSocketIdByUserId');
+    //console.log(userId, 'from getSocketIdByUserId');
+
+
+
+    // Iterate through all users in the Map
+    this.users.forEach((user, id) => {
+
+      //console.log(user, 'from getSocketIdByUserId');
+      const objectId = new ObjectId(userId);
+
+      console.log(objectId, 'from getSocketIdByUserId');
+      console.log(user.userId, 'from getSocketIdByUserId');
+
+
+
+      // Ensure both values are strings before comparison
+      if (user.userId.toString() === objectId.toString()) {
+        socketId = id; // Socket ID is the key in the Map
+      }
+    });
+
+    // Return the found socketId, or undefined if no match was found
+    return socketId;
+  }
+}
+
+// Initialize the `users` Map
 User.users = new Map();
 
 module.exports = User;

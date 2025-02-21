@@ -7,7 +7,7 @@ const dbName = 'bizmis_db';
 
 let client;
 let db;
-
+/*
 // Function to connect to MongoDB
 const connectToDatabase = async () => {
   if (!client || !client.topology || !client.topology.isConnected()) {
@@ -17,7 +17,19 @@ const connectToDatabase = async () => {
     console.log('Connected to MongoDB');
   }
   return db;
+}; */
+
+
+const connectToDatabase = async () => {
+  if (!client || !client.topology || !client.topology.isConnected()) {
+    client = new MongoClient(mongoURI, { useNewUrlParser: true, useUnifiedTopology: true });
+    await client.connect();
+    db = client.db(dbName);
+    console.log('Connected to MongoDB');
+  }
+  return { client, db };  // Return both client and db
 };
+
 
 // Function to close the connection (optional)
 const closeDatabaseConnection = async () => {
