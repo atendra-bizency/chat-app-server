@@ -10,45 +10,22 @@ module.exports = (io) => {
   io.on('connection', (socket) => {
     console.log('A user connected:', socket.id);
     // Send online user list
-    socket.emit('get online user', User.getOnlineUser());
-
-    /*
-        //  Handle user reconnection
-        socket.on('reconnect user', ({ full_name, _id }) => {
-          // Check if the user already exists in the User.users Map
-          let userExists = false;
-    
-          User.users.forEach((user) => {
-            if (user.id === _id) {
-              userExists = true;
-            }
-          });
-    
-          console.log(User.users, 'from users reconnect user');  
-    
-          // If the user doesn't exist, add them back to the User.users Map
-          if (!userExists) {
-            User.users.set(socket.id, { fullname: full_name, _id, isLogin: true });
-            io.emit('new user', { full_name, _id }); // Notify other users
-            //console.log(User.users, 'from users');
-          }
-    
-          // Emit the updated online user list
-          io.emit('get online user', User.getOnlineUser());
-        }); */
+    socket.emit('get online user', User.getOnlineUser()); 
 
     // Login
     // Handle other socket events, like user login event
-    socket.on('login', async (fullName, role, userId) => {
+    socket.on('login', async (fullName, role, userId, _id) => {
       try {
         // Check if the user exists in the database
         const { db } = await connectToDatabase();
         
-        const collection = db.collection('users');
+        let collection = role === 'agent' ? db.collection('agents') : db.collection('users');
 
-        const objectId = new ObjectId(userId);
+        console.log(userId, 'from userId');
+        const objectId = new ObjectId(_id);
+        
 
-        const user = await collection.findOne({ _id: objectId });
+        const user = await collection.findOne({ _id:objectId });
 
         if (!user) {
           // If user is not found in the database, emit 'user not found'
@@ -60,8 +37,13 @@ module.exports = (io) => {
           socket.emit('login status', { success: false, message: 'You are already logged in' });
           return;
         }
+
+        
         // Add the user to the in-memory store (tracking by socket.id)
-        User.users.set(socket.id, { fullName, userId, role, isLogin: true });
+        User.users.set(socket.id, { fullName, userId, role, objectId,isLogin: true });
+
+        console.log(User.users, 'from User.users');
+        
 
         // Emit the login status to the client
         socket.emit('login status', { success: true, user });
@@ -81,13 +63,16 @@ module.exports = (io) => {
       try {
         // Verify the JWT token sent by the client
         const decoded = jwt.verify(token, SECRET_KEY);
+        console.log(decoded, 'from decoded');
+        
 
         // Convert the userId string to an ObjectId
         const objectId = new ObjectId(decoded.userId); // Assuming userId is a string representing the ObjectId
 
         const { db } = await connectToDatabase();
 
-        const collection = db.collection('users');
+        let collection = decoded.role === 'agent' ? db.collection('agents') : db.collection('users');
+
 
         const user = await collection.findOne({ _id: objectId });
 
@@ -96,9 +81,24 @@ module.exports = (io) => {
           return;
         }
 
-        // Add user to in-memory store
-        User.users.set(socket.id, { fullName: user.username, userId: user._id, role: user.role, isLogin: true });
+        const uuidToBase64 = (uuid) => {
+          // First convert UUID to standard string format
+          const uuidString = uuid.toString();
+          const hex = uuidString.replace(/-/g, '');
+          const buffer = Buffer.from(hex, 'hex');
+          return buffer.toString('base64');
+        };
 
+        // Add user to in-memory store
+        User.users.set(socket.id, { 
+          fullName: user.username, 
+          userId: user.role === 'agent' ? user.userId : uuidToBase64(user.userId), 
+          role: user.role, 
+          objectId,
+          isLogin: true 
+        });
+        console.log(User.users, 'from User.users');
+        
         // Emit user login status
         socket.emit('login status', { success: true, user, token });
 
@@ -185,95 +185,75 @@ module.exports = (io) => {
 
     // Handle sending message
 
-
-    /*
-    socket.on('send message', (message) => {
-      // Ensure the receiver's socket is available
-
-      console.log(message, 'from message');
-
-      const { receiver, sender, chat, type, time } = message;
-
-      const receiverSocket = getSocketByUserId(message.receiver);
-      const senderSocket = socket.id;  // sender's socket is the one connected
-
-      //console.log(User.users, 'from users send message');
+    const uuidToBase64 = (uuid) => {
+      // First convert UUID to standard string format
+      const uuidString = uuid.toString();
+      const hex = uuidString.replace(/-/g, '');
+      const buffer = Buffer.from(hex, 'hex');
+      return buffer.toString('base64');
+    };
 
 
-      console.log('receiverSocket:', receiverSocket);
 
-      // Swap receiver and sender in the message object
-      const modifiedMessage = {
-        ...message, // Copy all existing properties
-        type: 'primary' // Swap sender to receiver
-      };
-
-      //console.log('senderSocket:', senderSocket);
-      if (receiverSocket) {
-        // Emit the message to the receiver's socket
-        io.to(receiverSocket).emit('receive message', modifiedMessage);
-      }
-
-
-      
-
-      // Optionally, emit the message back to the sender
-      //socket.emit('receive message', message);
-    }); */
-
-
-    /* socket.on('send message', async (message) => {
+    socket.on('send message', async (message) => {
       try {
-        const { user, role, chat } = message;
+        const { user, senderId, receiver, chat, role, conversationId } = message;
         console.log(message, 'from message');
+
+
     
-        // Initialize conversationId
-        let conversationId = message.conversationId || null;
+        let receiverSocket;
     
-        // Find conversation (pass conversationId if agent)
-        const conversation = await findConversationByCustomerId(user._id, role, conversationId);
+        if (receiver) {
+          // ✅ Directly use receiver from the message if available
+         receiverSocket = User.getSocketIdByUserId(new ObjectId(receiver));
+        } else {
+          // 🛑 If receiver is not provided, fetch conversation to get the receiver
+          const conversation = await findConversationByCustomerId(user._id, role, conversationId);
     
-        if (!conversation || !conversation.messages.length) {
-          console.error('No conversation found or messages are empty.');
-          return;
+          if (!conversation || !conversation.messages.length) {
+            console.error('No conversation found or messages are empty.');
+            return;
+          }
+    
+          const lastMessage = conversation.messages[conversation.messages.length - 1];
+    
+          if (!lastMessage?.receiver) {
+            console.error('No valid receiver found in the last message.');
+            return;
+          }
+    
+          receiverSocket = User.getSocketIdByUserId(new ObjectId(lastMessage.receiver));
         }
     
-        // Get the last message
-        const getLastMessage = conversation.messages[conversation.messages.length - 1];
-    
-        if (!getLastMessage?.receiver) {
-          console.error('No valid receiver found in the last message.');
-          return;
-        }
-    
-        // Get receiver's socket ID
-        const receiverSocket = User.getSocketIdByUserId(new ObjectId(getLastMessage.receiver));
         const senderSocket = socket.id; // Sender's socket
-    
         console.log('Receiver Socket:', receiverSocket, 'Sender Socket:', senderSocket);
     
-        // Add conversationId to message
+        // ✅ Include conversationId in the message
         const modifiedMessage = {
           ...message,
           type: 'primary',
-          conversationId: conversation._id
+          conversationId: conversationId || null
         };
+
+        console.log(modifiedMessage, 'from modifiedMessage');
+        
     
-        // Emit message to receiver
+        // ✅ Emit message to the receiver if online
         if (receiverSocket) {
-          io.to(receiverSocket).emit('receive message', modifiedMessage);
+          io.to(receiverSocket).emit('new message', modifiedMessage);
         } else {
           console.warn('Receiver is not online or socket ID not found.');
         }
     
-        // Optionally, send the message back to the sender
-        socket.emit('receive message', modifiedMessage);
+       
     
       } catch (error) {
         console.error('Error handling send message event:', error);
       }
     });
-     */
+
+    /*
     socket.on('send message', async (message) => {
       try {
         const { user, senderId, receiver, chat, role, conversationId } = message;
@@ -325,7 +305,7 @@ module.exports = (io) => {
       } catch (error) {
         console.error('Error handling send message event:', error);
       }
-    });
+    }); */
     
 
     async function findConversationByCustomerId(customerId, role, conversationId) {

@@ -7,7 +7,7 @@ const { MongoClient } = require('mongodb');
 const cors = require('cors'); // Import the cors middleware
 const bodyParser = require('body-parser'); // Import body-parser
 const mongoose = require('mongoose');
-const { ObjectId } = require('mongodb');  // Ensure ObjectId is imported
+const { ObjectId , Binary} = require('mongodb');  // Ensure ObjectId is imported
 const multer = require('multer');
 const upload = multer(); // Initialize multer middleware
 const fs = require('fs');
@@ -51,26 +51,135 @@ const jwt = require('jsonwebtoken');
 
 
 
-/*app.post('/api/login', async(req, res) => {
-  const { fullName, password } = req.body;
 
-  //console.log(req.body);
+/*
+app.post('/api/login', async (req, res) => {
+  const { username, password, role } = req.body;
 
-  const db = await connectToDatabase(); // Reuse connection
+  if (!username || !role) {
+    return res.status(400).json({ success: false, message: 'Username and role are required' });
+  }
 
-  const collection = db.collection('users');
-  
-  const user = await collection.findOne({ fullName, password });;
- //console.log(user);
-  
+  try {
+    const { db } = await connectToDatabase();
+    let collection = role === 'agent' ? db.collection('agents') : db.collection('users');
 
-  if (user) {
-    res.json({ success: true, user });
-  } else {
-    res.json({ success: false, message: 'Invalid username or password' });
+    // Find user
+    let user = await collection.findOne({ username, role });
+
+    // Create new user if not exists
+    if (!user) {    
+      const newUser = {
+        userId: UUID(), // Generate UUID
+        username,
+        role,
+      };
+      await collection.insertOne(newUser);
+      user = newUser;
+    }
+
+    console.log(user, 'user');
+    
+
+      // Convert UUID to Base64 (updated version)
+    const uuidToBase64 = (uuid) => {
+      // First convert UUID to standard string format
+      const uuidString = uuid.toString();
+      const hex = uuidString.replace(/-/g, '');
+      const buffer = Buffer.from(hex, 'hex');
+      return buffer.toString('base64');
+    };
+
+    // Prepare user data for response
+    const clientUserData = {
+      ...user,
+      userId: role === 'agent' ? user.userId : uuidToBase64(user.userId)
+    };
+
+    // Generate JWT using original UUID
+    const token = jwt.sign(
+      { userId: user._id, role: user.role }, // Use UUID here
+      'your_secret_key',
+      { expiresIn: '7d' }
+    );
+
+    res.json({ 
+      success: true, 
+      message: 'Login successful', 
+      user: clientUserData, 
+      token 
+    });
+
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 }); */
 
+app.post('/api/login', async (req, res) => {
+  const { username, password, role } = req.body;
+
+  if (!username || !role) {
+    return res.status(400).json({ success: false, message: 'Username and role are required' });
+  }
+
+  try {
+    const { db } = await connectToDatabase();
+    let collection = role === 'agent' ? db.collection('agents') : db.collection('users');
+
+    // Find user
+    let user = await collection.findOne({ username, role });
+
+    // Create new user if not exists
+    if (!user) {    
+      const newUser = {
+        userId: UUID(), // Generate UUID
+        username,
+        role,
+      };
+      await collection.insertOne(newUser);
+      user = newUser;
+    }
+
+    console.log(user, 'user');
+    
+
+      // Convert UUID to Base64 (updated version)
+    const uuidToBase64 = (uuid) => {
+      // First convert UUID to standard string format
+      const uuidString = uuid.toString();
+      const hex = uuidString.replace(/-/g, '');
+      const buffer = Buffer.from(hex, 'hex');
+      return buffer.toString('base64');
+    };
+
+    // Prepare user data for response
+    const clientUserData = {
+      ...user,
+      userId: role === 'agent' ? user.userId : uuidToBase64(user.userId)
+    };
+
+    // Generate JWT using original UUID
+    const token = jwt.sign(
+      { userId: user._id, role: user.role }, // Use UUID here
+      'your_secret_key',
+      { expiresIn: '7d' }
+    );
+
+    res.json({ 
+      success: true, 
+      message: 'Login successful', 
+      user, 
+      token 
+    });
+
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+});
+
+/*
 app.post('/api/login', async (req, res) => {
   const { username, password, role } = req.body;
 
@@ -130,7 +239,7 @@ app.post('/api/login', async (req, res) => {
     console.error('Login error:', error);
     res.status(500).json({ success: false, message: 'Internal server error' });
   }
-});
+}); */
 
 
 
@@ -375,176 +484,8 @@ app.get('/api/users', async (req, res) => {
 
 //send message
 
+
 /*
-app.post('/api/sendMessage', async (req, res) => {
-  try {
-    const db = await connectToDatabase(); // Reuse connection
-
-    const { sender, receiver, date, time, chat } = req.body;
-
-    // Validate required fields
-    if (!sender || !receiver || !date || !time || !chat) {
-      return res.status(400).json({ error: 'All fields except image are required.' });
-    }
-
-    // Check if a conversation exists for the sender and receiver
-    let conversation = await db.collection('conversations').findOne({ participants: { $all: [sender, receiver] } });
-
-    if (!conversation) {
-      // Create a new conversation if it doesn't exist
-      const lastConversation = await db.collection('conversations').findOne({}, { sort: { conversation_id: -1 } });
-      const newConversationId = (lastConversation ? lastConversation.conversation_id : 0) + 1;
-
-      conversation = new Conversation({
-        conversation_id: newConversationId,
-        participants: [sender, receiver],
-      });
-
-      await db.collection('conversations').insertOne(conversation);
-    }
-
-    // Fetch the last message to get the latest message_id
-    const lastMessage = await db.collection('messages').findOne({}, { sort: { message_id: -1 } });
-
-    // Calculate the new message_id
-    const newMessageId = (lastMessage ? lastMessage.message_id : 0) + 1;
-
-    // Create a new message document
-    const newMessage = new Message({
-      message_id: newMessageId,
-      conversation_id: conversation.conversation_id,
-      sender,
-      receiver,
-      date,
-      time,
-      chat,
-      status: "1", // Status should always be "1"
-    });
-
-    // Save the message to the database
-    //const savedMessage = await newMessage.save();
-
-    const savedMessage = await db.collection('messages').insertOne(newMessage);
-
-    await closeDatabaseConnection();
-
-    res.status(201).json({
-      message: 'Message sent successfully',
-      data: savedMessage,
-      conversation_id: conversation.conversation_id,
-    });
-  } catch (error) {
-    console.error('Error sending message:', error);
-    res.status(500).send('Internal Server Error');
-  }
-});
-
-*/
-
-/* after 2nd 
-app.post('/api/sendMessage', async (req, res) => {
-  try {
-    const db = await connectToDatabase();
-    const { sender, team, chat } = req.body;
-    const currentTime = new Date();
-
-    // Validate required fields
-    if (!sender || !team || !chat) {
-      return res.status(400).json({ error: 'Sender, team, and message content are required' });
-    }
-
-    // 1. Find available agent in the specified team
-    const agent = await db.collection('agents').findOneAndUpdate(
-      { team, isAvailable: true },
-      { $set: { isAvailable: false } },
-      { returnOriginal: false }
-    );
-
-    if (!agent.value) {
-      return res.status(503).json({ 
-        error: 'No available agents in this team', 
-        suggestion: 'Please try again later' 
-      });
-    }
-
-    // 2. Find or create conversation
-    let conversation = await db.collection('conversations').findOne({
-      customerId: sender,
-      agentId: agent.value.userId,
-      status: 'open'
-    });
-
-    if (!conversation) {
-      const lastConv = await db.collection('conversations').findOne(
-        {}, 
-        { sort: { conversation_id: -1 } }
-      );
-      
-      conversation = {
-        conversation_id: (lastConv?.conversation_id || 0) + 1,
-        customerId: sender,
-        agentId: agent.value.userId,
-        team,
-        created_at: currentTime,
-        status: 'open',
-        messages: []
-      };
-
-      await db.collection('conversations').insertOne(conversation);
-    }
-
-    // 3. Create and store message
-    const lastMessage = await db.collection('messages').findOne(
-      {}, 
-      { sort: { message_id: -1 } }
-    );
-
-    const newMessage = {
-      message_id: (lastMessage?.message_id || 0) + 1,
-      conversation_id: conversation.conversation_id,
-      sender,
-      receiver: agent.value.userId,
-      team,
-      chat,
-      timestamp: currentTime,
-      status: 'unread'
-    };
-
-    await db.collection('messages').insertOne(newMessage);
-
-    // Update conversation with latest message
-    await db.collection('conversations').updateOne(
-      { conversation_id: conversation.conversation_id },
-      { 
-        $push: { messages: newMessage },
-        $set: { last_activity: currentTime }
-      }
-    );
-
-    // 4. Trigger real-time update (WebSocket/Socket.io)
-    // You would add your socket.io emission logic here
-    // io.to(agentSocketId).emit('new_message', newMessage);
-
-    res.status(201).json({
-      success: true,
-      message: 'Message routed to support team',
-      assignedAgent: agent.value.userId,
-      conversationId: conversation.conversation_id,
-      message: newMessage
-    });
-
-  } catch (error) {
-    console.error('Error in support message routing:', error);
-    res.status(500).json({ 
-      error: 'Failed to process support request',
-      details: error.message
-    });
-  } finally {
-    await closeDatabaseConnection();
-  }
-}); */
-
-
 app.post('/api/sendMessage', async (req, res) => {
   const { client, db } = await connectToDatabase();
   const session = client.startSession(); // Start session from client
@@ -568,10 +509,7 @@ app.post('/api/sendMessage', async (req, res) => {
     // Start Transaction
     await session.withTransaction(async () => {
       // 1️⃣ **Check for an existing open conversation**
-      /* conversation = await db.collection('conversations').findOne({
-         customerId: new ObjectId(senderId),
-         status: 'open'
-       }); */
+
       conversation = await db.collection('conversations').findOne({
         conversation_id: conversationId,
         //status: 'open'
@@ -680,11 +618,227 @@ app.post('/api/sendMessage', async (req, res) => {
     await session.endSession(); // End the transaction session
     await closeDatabaseConnection();
   }
+}); */
+
+
+
+app.post('/api/sendMessage', async (req, res) => {
+  const { client, db } = await connectToDatabase();
+  const session = client.startSession(); // Start session from client
+  let newMessage; // Declare it here to use later in socket logic
+
+  try {
+    const { senderId, chat, role, conversationId } = req.body;
+    const currentTime = new Date();
+
+    if (!senderId || !chat || !role) {
+      return res.status(400).json({ error: 'Sender, message, and role are required' });
+    }
+
+    console.log(`🔍 Processing message from sender: ${senderId} | Role: ${role}`);
+
+    let conversation;
+    let agent;
+    let team;
+    let agentId; // Store agentId separately for consistency
+
+    // Start Transaction
+    await session.withTransaction(async () => {
+      // 1️⃣ **Check for an existing open conversation**
+      /* conversation = await db.collection('conversations').findOne({
+         customerId: new ObjectId(senderId),
+         status: 'open'
+       }); */
+      conversation = await db.collection('conversations').findOne({
+        conversation_id: conversationId,
+        //status: 'open'
+      });
+
+      if (!conversation) {
+        console.log('📌 No active conversation. Assigning a team and agent.');
+
+        // 2️⃣ **Find a suitable team**
+        team = await db.collection('teams').findOne({});
+        if (!team) throw new Error('No available teams to assign.');
+
+        console.log(`✅ Assigned Team: ${team.teamId}`);
+
+        // 3️⃣ **Find an available agent in that team**
+        agent = await db.collection('agents').findOneAndUpdate(
+          //{ team: team.teamId, isAvailable: true },
+          { teamId: team.teamId, isAvailable: true },
+          { $set: { isAvailable: false } },
+          { returnOriginal: false, session }
+        );
+
+        if (!agent.value) throw new Error('No available agents at this time.');
+
+        //agentId = agent.value._id; // Normalize agent ID
+        agentId = agent.value._id; // Normalize agent ID
+        agent = await db.collection('agents').findOne({ _id: new ObjectId(agentId) });
+
+        console.log(`✅ Assigned Agent: ${agentId}`);
+
+        // 4️⃣ **Create a new conversation**
+        const lastConv = await db.collection('conversations').findOne({}, { sort: { conversation_id: -1 } });
+
+        conversation = {
+          conversation_id: (lastConv?.conversation_id || 0) + 1,
+          customerId: new ObjectId(senderId),
+          agentId: agentId,
+          //agentId: new ObjectId(agentId),
+          team: team.teamId,
+          created_at: currentTime,
+          status: 'open',
+          messages: []
+        };
+
+        await db.collection('conversations').insertOne(conversation, { session });
+
+        console.log(`📌 New conversation started: ${conversation.conversation_id}`);
+      } else {
+        console.log(`📌 Existing conversation found: ${conversation.conversation_id}`);
+        console.log(`📌 Existing conversation found: ${conversation.agentId}`);
+        team = conversation.team;
+        agent = await db.collection('agents').findOne({ _id: new ObjectId(conversation.agentId) });
+        agentId = agent?._id; // Normalize agent ID
+
+        console.log(`📌 Assigned existing agent: ${agentId}`);
+      }
+
+      // 5️⃣ **Create and store the message**
+      const lastMessage = await db.collection('messages').findOne({}, { sort: { message_id: -1 } });
+
+      newMessage = {
+        message_id: (lastMessage?.message_id || 0) + 1,
+        conversation_id: conversation.conversation_id,
+        senderId: new ObjectId(senderId),
+        //receiver: new ObjectId(agentId), // Ensure receiver is correctly assigned
+        receiver: agentId, // Ensure receiver is correctly assigned
+        team,
+        chat,
+        timestamp: currentTime,
+        status: 'unread'
+      };
+
+      console.log('📌 New Message:', newMessage);
+
+      await db.collection('messages').insertOne(newMessage, { session });
+
+      // 6️⃣ **Update conversation with the latest message**
+      await db.collection('conversations').updateOne(
+        { conversation_id: conversation.conversation_id },
+        {
+          $push: { messages: newMessage },
+          $set: { last_activity: currentTime }
+        },
+        { session }
+      );
+
+      console.log(`📌 Message stored: ${newMessage.message_id}`);
+    });
+
+    console.log(`✅ Message successfully processed for sender: ${senderId}`);
+
+    res.status(201).json({
+      success: true,
+      message: 'Message sent to support',
+      assignedAgent: agentId,
+      assignedAgentDetails: agent,
+      conversationId: conversation.conversation_id,
+      chat: newMessage
+    });
+
+  } catch (error) {
+    console.error('❌ Error in message routing:', error);
+    res.status(500).json({
+      error: 'Failed to send message',
+      details: error.message
+    });
+
+  } finally {
+    await session.endSession(); // End the transaction session
+    await closeDatabaseConnection();
+  }
 });
 
 
 
 
+
+app.post('/api/sendAgentMessage', async (req, res) => {
+  try {
+    const { db } = await connectToDatabase();
+    const { senderId, conversationId, chat, role } = req.body;
+
+    console.log(req.body, 'req.body');
+
+    const currentTime = new Date();
+
+    if (!senderId || !conversationId || !chat) {
+      return res.status(400).json({ error: 'Agent ID, conversation ID, and message are required' });
+    }
+
+    // 1. Find the existing conversation
+    const conversation = await db.collection('conversations').findOne({
+      conversation_id: parseInt(conversationId, 10),
+      //status: 'open'
+    });
+
+    if (!conversation) {
+      return res.status(404).json({ error: 'No active conversation found' });
+    }
+
+    // 2. Get the customer ID from the conversation
+    const customerId = conversation.customerId;
+
+    // 3. Create the new agent message
+    const lastMessage = await db.collection('messages').findOne({}, { sort: { message_id: -1 } });
+
+    const newMessage = {
+      message_id: (lastMessage?.message_id || 0) + 1,
+      conversation_id: JSON.parse(conversationId),
+      senderId: senderId,
+      receiverId: customerId,
+      team: conversation.team,
+      chat,
+      timestamp: currentTime,
+      status: 'unread'
+    };
+
+    // 4. Store the message in the database
+    await db.collection('messages').insertOne(newMessage);
+
+    // 5. Update the conversation with the latest message
+    await db.collection('conversations').updateOne(
+      { conversation_id: parseInt(conversationId, 10), },
+      {
+        $push: { messages: newMessage },
+        $set: { last_activity: currentTime }
+      }
+    );
+
+    //const userIdBuffer = Buffer.from(customerId, 'base64');       
+
+    res.status(201).json({
+      success: true,
+      message: 'Message sent to customer',
+      chat: newMessage,
+      assignedAgent: customerId,
+      conversation, 
+      conversationId:JSON.parse(conversationId),
+      assignedAgentDetails: await db.collection('users').findOne({ _id: new ObjectId(customerId) })
+    });
+
+  } catch (error) {
+    console.error('Error sending agent message:', error);
+    res.status(500).json({ error: 'Failed to send message', details: error.message });
+  } finally {
+    await closeDatabaseConnection();
+  }
+});
+
+/*
 app.post('/api/sendAgentMessage', async (req, res) => {
   try {
     const { db } = await connectToDatabase();
@@ -750,7 +904,7 @@ app.post('/api/sendAgentMessage', async (req, res) => {
   } finally {
     await closeDatabaseConnection();
   }
-});
+}); */
 
 
 
@@ -764,16 +918,18 @@ const getSocketIdByUserId = (userId) => {
 
 const Agent = require('./models/Agents'); // Import the Agent model
 const User = require('./sockets/User');
+const { UUID } = require('bson');
 
 // Create Agent API
+/*
 app.post('/api/agents', async (req, res) => {
   try {
 
-    const db = await connectToDatabase();
-    const { userId, fullName, team, isAvailable, currentChatId, lastActivity } = req.body;
+    const {db} = await connectToDatabase();
+    const { userId, username, team, isAvailable, currentChatId, lastActivity } = req.body;
 
     // Validate required fields
-    if (!userId || !fullName || !team) {
+    if (!userId || !username || !team) {
       return res.status(400).json({ error: 'userId, fullName, and team are required' });
     }
 
@@ -786,7 +942,7 @@ app.post('/api/agents', async (req, res) => {
     // Create new agent document
     const newAgent = {
       userId,
-      fullName,
+      username,
       team,
       isAvailable: isAvailable ?? true, // Default to true
       currentChatId: currentChatId ?? null,
@@ -803,7 +959,108 @@ app.post('/api/agents', async (req, res) => {
     console.error('Error creating agent:', error);
     res.status(500).json({ error: 'Internal server error', details: error.message });
   }
+}); */
+
+app.post('/api/agents', async (req, res) => {
+  try {
+    const { db } = await connectToDatabase();
+    const {
+      userId,
+      teamId,
+      maxUserAllowed,
+      idleTime,
+      idleOperatorOffline,
+      sendFileVisitor,
+      status,
+      clientUserId,
+      clientMasterId,
+      isAvailable,
+      lastActivity,
+      username // Updated user data from MySQL
+    } = req.body;
+
+    // Validate required fields
+    if (!userId || !status) {
+      return res.status(400).json({ error: 'userId and status are required' });
+    }
+
+    // Check if agent already exists in MongoDB
+    const existingAgent = await db.collection('agents').findOne({ userId });
+    if (existingAgent) {
+      return res.status(409).json({ error: 'Agent with this userId already exists' });
+    }
+
+    // Create new agent document
+    const newAgent = {
+      userId,
+      teamId:teamId ?? null,
+      maxUserAllowed: maxUserAllowed ?? null,
+      idleTime: idleTime ??null,
+      idleOperatorOffline: idleOperatorOffline ??null,
+      sendFileVisitor: sendFileVisitor ??null,
+      status,
+      clientUserId,
+      clientMasterId,
+      isAvailable: isAvailable ?? true, // Default to true
+      lastActivity: lastActivity ? new Date(lastActivity) : new Date(),
+      username ,// Store the latest MySQL user data in MongoDB,
+      role: 'agent'
+    };
+
+    // Insert into MongoDB
+    await db.collection('agents').insertOne(newAgent);
+
+    res.status(201).json({ message: 'Agent created successfully', agent: newAgent });
+
+  } catch (error) {
+    console.error('Error creating agent:', error);
+    res.status(500).json({ error: 'Internal server error', details: error.message });
+  }
 });
+
+app.post('/api/agents/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    //console.log(userId);
+    
+    const { db } = await connectToDatabase();
+    const { teamId, maxUserAllowed, idleTime, idleOperatorOffline, sendFileVisitor, status } = req.body;
+    //console.log(req.body);
+
+    // Validate required fields
+    if (!teamId || !status) {
+      return res.status(400).json({ error: 'teamId and status are required' });
+    }
+
+    // Check if the agent exists
+    const existingAgent = await db.collection('agents').findOne({ userId: userId });
+    if (!existingAgent) {
+      return res.status(404).json({ error: 'Agent not found' });
+    }
+
+    // Update the agent document
+    const updatedAgent = {
+      teamId,
+      maxUserAllowed,
+      idleTime,
+      idleOperatorOffline,
+      sendFileVisitor,
+      status,
+    };
+
+    await db.collection('agents').updateOne(
+      { userId: userId },
+      { $set: updatedAgent }
+    );
+
+    res.status(200).json({ message: 'Agent updated successfully', agent: updatedAgent });
+
+  } catch (error) {
+    console.error('Error updating agent:', error);
+    res.status(500).json({ error: 'Internal server error', details: error.message });
+  }
+});
+
 
 
 
@@ -961,8 +1218,126 @@ app.get('/api/conversation/:role/:userId', async (req, res) => {
     const { userId, role } = req.params;
     const { db } = await connectToDatabase();
 
-    //console.log(role, '===>role');
-    // console.log(userId, '===>userId');
+    console.log(role, '===>role');
+     console.log(userId, '===>userId');
+
+   /* if (!ObjectId.isValid(userId)) {
+      return res.status(400).json({ success: false, message: 'Invalid customer ID' });
+    } */
+    const conversations = await db.collection('conversations').find({
+      $or: [
+        { customerId: new ObjectId(userId) },
+        { agentId: new ObjectId(userId) }
+      ]
+    }).toArray();
+
+
+
+    if (!conversations || conversations.length === 0) {
+      return res.status(404).json({ success: false, message: 'No conversations found for this customer' });
+    }
+
+    let conversationsWithDetails
+    if (role === 'customer') {
+
+
+      // Map through each conversation to fetch agent and team details (if applicable)
+      conversationsWithDetails = await Promise.all(
+        conversations.map(async (conversation) => {
+          // Initialize agentDetails and teamDetails as null
+          let agentDetails = null;
+          let teamDetails = null;
+
+          console.log(conversation, '===>conversations from inside');
+
+          //console.log(conversation.agentId, '===>conversation.agentId');
+
+
+          // Fetch agent details if an agent is assigned
+          if (conversation.agentId) {
+            agentDetails = await db.collection('agents').findOne({ _id: conversation.agentId });
+
+           /* if (agentDetails) {
+              agentDetails = await db.collection('users').findOne({ _id: new ObjectId(conversation.agentId) });
+            } */
+
+          }
+
+          // Fetch team details if a team is assigned (and is a string or valid ID)
+          if (conversation.team && typeof conversation.team === 'string') {
+            teamDetails = await db.collection('teams').findOne({ teamId: conversation.team });
+          }
+
+          // Return the conversation with its respective agent and team details
+          return {
+            ...conversation,
+            agentDetails,
+            teamDetails,
+          };
+        })
+      );
+    } else {
+      conversationsWithDetails = await Promise.all(
+        conversations.map(async (conversation) => {
+          // Initialize agentDetails and teamDetails as null
+          let agentDetails = null;
+          let teamDetails = null;
+
+          console.log(conversation, '===>conversations from inside');
+
+                    // Convert base64 to Buffer
+          //const userIdBuffer = Buffer.from(conversation.customerId, 'base64');       
+
+          // Fetch agent details if an agent is assigned
+          if (conversation.customerId) {
+            agentDetails = await db.collection('users').findOne({ _id: new ObjectId(conversation.customerId) });
+          }
+
+          // Fetch team details if a team is assigned (and is a string or valid ID)
+          if (conversation.team && typeof conversation.team === 'string') {
+            teamDetails = await db.collection('teams').findOne({ teamId: conversation.team });
+          }
+
+          // Return the conversation with its respective agent and team details
+          return {
+            ...conversation,
+            agentDetails,
+            teamDetails,
+          };
+        })
+      );
+
+    }
+
+    // Validate userId format
+
+
+    //console.log(conversations, '===>conversations');
+
+    // If no conversations are found, return an appropriate response
+
+
+    // Send the response with all the conversations and their associated details
+    res.status(200).json({
+      success: true,
+      message: 'Conversations retrieved successfully',
+      data: conversationsWithDetails,
+    });
+
+  } catch (error) {
+    console.error('Error fetching conversation:', error);
+    res.status(500).json({ success: false, message: 'Internal Server Error' });
+  }
+});
+
+/*
+app.get('/api/conversation/:role/:userId', async (req, res) => {
+  try {
+    const { userId, role } = req.params;
+    const { db } = await connectToDatabase();
+
+    console.log(role, '===>role');
+     console.log(userId, '===>userId');
 
     if (!ObjectId.isValid(userId)) {
       return res.status(400).json({ success: false, message: 'Invalid customer ID' });
@@ -1066,7 +1441,7 @@ app.get('/api/conversation/:role/:userId', async (req, res) => {
     console.error('Error fetching conversation:', error);
     res.status(500).json({ success: false, message: 'Internal Server Error' });
   }
-});
+}); */
 
 
 app.post('/api/conversation/:userId', async (req, res) => {
@@ -1250,8 +1625,7 @@ app.post('/api/conversation', async (req, res) => {
 
   try {
     // Reuse the existing database connection
-    const{ db} = await connectToDatabase();
-
+    const{ db} = await connectToDatabase();    
     // Find conversations where both sender and receiver are participants
     const conversations = await db.collection('conversations').find({
       $and: [
@@ -1260,7 +1634,7 @@ app.post('/api/conversation', async (req, res) => {
       ]
     }).toArray();
 
-    //console.log('conversations=>>>>',conversations);
+    console.log('conversations=>>>>',conversations);
 
 
     // If no conversations are found, send an appropriate message
@@ -1304,6 +1678,49 @@ app.post('/api/conversation', async (req, res) => {
     res.status(500).send('Internal Server Error');
   }
 });
+/*
+app.post('/api/conversation', async (req, res) => {
+  const { customerId, agentId } = req.body; // Receive both sender and receiver from request body
+
+
+  console.log( customerId);
+  
+
+  try {
+    // Reuse the existing database connection
+    const{ db} = await connectToDatabase();
+
+    // Find conversations where both sender and receiver are participants
+    const conversations = await db.collection('conversations').find({
+      $and: [
+        { customerId: new ObjectId(customerId) }, // Match customerId
+        { agentId: new ObjectId(agentId) } // Match agentId
+      ]
+    }).toArray();
+
+    //console.log('conversations=>>>>',conversations);
+
+
+    // If no conversations are found, send an appropriate message
+    if (conversations.length === 0) {
+      return res.status(200).json({ message: false });
+    }
+
+   
+
+    // Close the database connection (if not using persistent connection)
+    await closeDatabaseConnection();
+
+    // Return the list of conversations
+    res.status(200).json({
+      message: true,
+      data: conversations,
+    });
+  } catch (error) {
+    console.error('Error fetching conversations:', error);
+    res.status(500).send('Internal Server Error');
+  }
+}); */
 
 
 app.post('/api/sendDocument', upload.single('file'), async (req, res) => {

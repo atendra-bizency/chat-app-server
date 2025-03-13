@@ -36,13 +36,16 @@ class User {
       //console.log(user, 'from getSocketIdByUserId');
       const objectId = new ObjectId(userId);
 
-      console.log(objectId, 'from getSocketIdByUserId');
-      console.log(user.userId, 'from getSocketIdByUserId');
+      //console.log(objectId, 'from getSocketIdByUserId111');
+      //console.log(user.objectId, 'from getSocketIdByUserId222');
 
 
 
       // Ensure both values are strings before comparison
-      if (user.userId.toString() === objectId.toString()) {
+      if (user.objectId.toString() === objectId.toString()) {
+       // console.log(user.objectId, 'from getSocketIdByUserId333');
+        //console.log(objectId, 'from getSocketIdByUserId444');
+        
         socketId = id; // Socket ID is the key in the Map
       }
     });
