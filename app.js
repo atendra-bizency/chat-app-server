@@ -12,7 +12,7 @@ const multer = require('multer');
 const upload = multer(); // Initialize multer middleware
 const fs = require('fs');
 const bcrypt = require('bcrypt');
-
+require('dotenv').config();
 
 // Express
 var app = express();
@@ -34,10 +34,10 @@ app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // MongoDB connection details
-//const mongoURI = 'mongodb://localhost:27017/';
-//const mongoURI = 'mongodb://arshadthedeveloper:ijgzSNj1Cr2z0NC3@0127.0.0.1:27017/?authSource=admin';
-const mongoURI = 'mongodb+srv://arshadthedeveloper:ijgzSNj1Cr2z0NC3@cluster0.7pgip.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0';
-const dbName = 'bizmis_db';
+
+
+const mongoURI = process.env.MONGO_URI;
+const dbName = process.env.MONGO_DB_NAME;
 
 const profileImageDir = path.join(__dirname, '../styles/profile');
 
@@ -643,7 +643,7 @@ app.post('/api/sendMessage', async (req, res) => {
     let agentId; // Store agentId separately for consistency
 
     // Start Transaction
-    await session.withTransaction(async () => {
+   // await session.withTransaction(async () => {
       // 1️⃣ **Check for an existing open conversation**
       /* conversation = await db.collection('conversations').findOne({
          customerId: new ObjectId(senderId),
@@ -736,7 +736,7 @@ app.post('/api/sendMessage', async (req, res) => {
       );
 
       console.log(`📌 Message stored: ${newMessage.message_id}`);
-    });
+    //});
 
     console.log(`✅ Message successfully processed for sender: ${senderId}`);
 

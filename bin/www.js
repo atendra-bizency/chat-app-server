@@ -5,10 +5,15 @@ const MongoClient = require('mongodb').MongoClient;
 const cors = require('cors'); 
 const SocketIO = require('socket.io');
 const app = require('../app');
-
+const http = require('http');
+require('dotenv').config();
 // MongoDB connection details
-const mongoURI = 'mongodb+srv://arshadthedeveloper:ijgzSNj1Cr2z0NC3@cluster0.7pgip.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0';
-const dbName = 'bizmis_db';
+
+
+const mongoURI = process.env.MONGO_URI;
+const dbName = process.env.MONGO_DB_NAME;
+
+
 
 // Enable CORS for all routes
 app.use(cors());
@@ -22,21 +27,24 @@ app.set('port', port);
 /**
  * Create HTTPS server with SSL certificates.
  */
+/*
 const server = https.createServer(
   {
     cert: fs.readFileSync('../cert.pem'), // SSL Certificate
     key: fs.readFileSync('../key.pem'),  // SSL Private Key
   },
   app
-);
+); */
+
+const server = http.createServer(app);
 
 // Set up Socket.IO with HTTPS server
 const io = SocketIO(server, {
   cors: {
    
     origin: (origin, callback) => {
-      if (origin === 'https://localhost/bizencyProject/public/mis' || origin === 'https://localhost:3000' 
-        || origin === 'https://192.168.1.4:3000' 
+      if (origin === 'http://localhost/bizencyProject/public/printpace' || origin === 'http://localhost:3000' 
+        || origin === 'http://192.168.1.6:3000' 
       ) {
         callback(null, true); // Allow the request from both origins
       } else {
@@ -70,7 +78,7 @@ MongoClient.connect(mongoURI, { useNewUrlParser: true, useUnifiedTopology: true 
  * Listen on provided port, on all network interfaces.
  */
 server.listen(port, () => {
-  console.log(`Server is running on https://localhost:${port}`);
+  console.log(`Server is running on http://localhost:${port}`);
 });
 server.on('error', onError);
 server.on('listening', onListening);

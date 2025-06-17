@@ -1,9 +1,12 @@
 // db.js
+require('dotenv').config();
 const { MongoClient } = require('mongodb');
 
 // MongoDB configuration
-const mongoURI = 'mongodb+srv://arshadthedeveloper:ijgzSNj1Cr2z0NC3@cluster0.7pgip.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0';
-const dbName = 'bizmis_db';
+;
+
+const mongoURI = process.env.MONGO_URI;
+const dbName = process.env.MONGO_DB_NAME;
 
 let client;
 let db;
@@ -26,6 +29,8 @@ const connectToDatabase = async () => {
     await client.connect();
     db = client.db(dbName);
     console.log('Connected to MongoDB');
+    console.log(mongoURI);
+    
   }
   return { client, db };  // Return both client and db
 };
