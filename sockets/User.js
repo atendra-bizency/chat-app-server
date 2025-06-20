@@ -5,14 +5,25 @@ class User {
     this.id = id;
     this.isLogin = login;
     this.fullname = '';
+    this.objectId = new ObjectId(id); // Pre-convert once
   }
 
   static getOnlineUser() {
     let onlineUser = [];
 
-    this.users.forEach((value, key) => {
+    /*this.users.forEach((value, key) => {
       if (value.isLogin) {
         onlineUser.push(value.fullname);
+      }
+    }); */
+
+    this.users.forEach((user, socketId) => {
+      if (user.isLogin) {
+        onlineUser.push({
+          socketId,
+          userId: user.id,
+          fullname: user.fullname,
+        });
       }
     });
 
@@ -52,6 +63,29 @@ class User {
 
     // Return the found socketId, or undefined if no match was found
     return socketId;
+  }
+
+
+    static getSocketIdByUserIdV2(userId) {
+    const objectId = new ObjectId(userId);
+
+    for (const [socketId, user] of this.users.entries()) {
+      if (user?.objectId?.toString() === objectId.toString()) {
+        return socketId;
+      }
+    }
+
+    return undefined;
+  }
+
+    // 🔥 New: Broadcast user status to all clients
+  static broadcastStatus(io, userId, is_active) {
+    console.log(userId, is_active );
+    
+    io.emit('user-status-update', {
+      userId,
+      is_active,
+    });
   }
 }
 

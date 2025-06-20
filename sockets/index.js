@@ -8,11 +8,14 @@ const { ObjectId } = require('mongodb'); // If you're using the native MongoDB d
 module.exports = (io) => {
   // Connection
   io.on('connection', (socket) => {
-    console.log('A user connected:', socket.id);
+    console.log('A user connectedddd:', socket.id);
+    //if (!userId) return;
     // Send online user list
+    //console.log('A user :', userId);
     socket.emit('get online user', User.getOnlineUser()); 
-
+    
     // Login
+    //const userId = socket.handshake.query.userId;
     // Handle other socket events, like user login event
     socket.on('login', async (fullName, role, userId, _id) => {
       try {
@@ -23,7 +26,7 @@ module.exports = (io) => {
 
         console.log(userId, 'from userId');
         const objectId = new ObjectId(_id);
-        
+        //User.broadcastStatus(io, userId, true);
 
         const user = await collection.findOne({ _id:objectId });
 
@@ -48,8 +51,12 @@ module.exports = (io) => {
         // Emit the login status to the client
         socket.emit('login status', { success: true, user });
 
+         // Broadcast to *others* that this user is online
+        socket.broadcast.emit('user-status-update', { objectId, is_active: true });
+
+
         // Optionally, emit 'new user' to notify other connected users
-        io.emit('new user', { fullName, userId, role });
+        io.emit('new user', { fullName, userId, role, objectId, isLogin: true });
 
       } catch (error) {
         console.error('Error during socket login:', error);
@@ -63,7 +70,7 @@ module.exports = (io) => {
       try {
         // Verify the JWT token sent by the client
         const decoded = jwt.verify(token, SECRET_KEY);
-        console.log(decoded, 'from decoded');
+        //console.log(decoded, 'from decoded');
         
 
         // Convert the userId string to an ObjectId
@@ -97,10 +104,21 @@ module.exports = (io) => {
           objectId,
           isLogin: true 
         });
-        console.log(User.users, 'from User.users');
+        //console.log(User.users, 'from User.users');
         
         // Emit user login status
         socket.emit('login status', { success: true, user, token });
+        // Create list of all online users
+    const onlineUsers = Array.from(User.users.values()).map(u => ({
+      userId: u.objectId,
+      is_active: true
+    }));
+
+    console.log(onlineUsers, 'from onlineUsers' );
+    
+
+    // Broadcast the full list
+    io.emit('user-status-update', onlineUsers);
 
       } catch (error) {
 
@@ -351,8 +369,13 @@ module.exports = (io) => {
 
     // Disconnect
     socket.on('disconnect', (reason) => {
+     const userData = User.users.get(socket.id);
+     console.log(userData, 'userData from disconnect');
+     
+    if (userData) {
+      User.broadcastStatus(io, userData.userId, false);
       User.users.delete(socket.id);
-      io.emit('get online user', User.getOnlineUser());
+    }
     });
   });
 };
