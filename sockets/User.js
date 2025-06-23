@@ -36,7 +36,7 @@ class User {
 
 
 
-    console.log(this.users, 'from getSocketIdByUserId');
+    //console.log(this.users, 'from getSocketIdByUserId');
     //console.log(userId, 'from getSocketIdByUserId');
 
 

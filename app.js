@@ -530,7 +530,7 @@ app.post('/api/sendMessage', async (req, res) => {
         agent = await db.collection('agents').findOneAndUpdate(
           //{ team: team.teamId, isAvailable: true },
           { teamId: team.teamId, isAvailable: true },
-          { $set: { isAvailable: true } },
+          { $set: { isAvailable: false } },
           { returnOriginal: false, session }
         );
 
@@ -1025,7 +1025,7 @@ app.post('/api/teams/create', async (req, res) => {
 app.get('/api/getMessage/:conversationId', async (req, res) => {
   const { conversationId } = req.params;
 
-  console.log(conversationId);
+  //console.log(conversationId);
   
   if (!conversationId) return res.status(200).json([]);
   const { db } = await connectToDatabase();
@@ -1036,13 +1036,17 @@ app.get('/api/getMessage/:conversationId', async (req, res) => {
       { conversation_id: parseInt(conversationId) }
     );
 
+    //console.log(conversation);
+    
+
     if (!conversation) {
       return res.status(404).json({ message: 'Conversation not found.' });
     }
 
     // Extract agentId from the conversation
     const { agentId } = conversation;
-
+    //console.log(agentId);
+    
     // Update conversation status to "closed"
     await db.collection('conversations').updateOne(
       { conversation_id: parseInt(conversationId) }, // Find by conversation_id
@@ -1051,8 +1055,8 @@ app.get('/api/getMessage/:conversationId', async (req, res) => {
 
   
     await db.collection('agents').updateOne(
-      { userId: new ObjectId(agentId) }, // Find by conversation_id
-      { $set: { isAvailable: 'true' } } // Update status to closed
+      { _id: new ObjectId(agentId) }, // Find by conversation_id
+      { $set: { isAvailable: true } } // Update status to closed
     );
 
     // Close the database connection (if not using persistent connection)
